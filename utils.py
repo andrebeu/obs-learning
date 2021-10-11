@@ -154,12 +154,18 @@ class ACAgent(tr.nn.Module):
         data = {}
         ## entropy
         vhat,pact = self.forward(expD['state'])
-        pra = pact.softmax(-1)
-        entropy = -1 * tr.sum(pra*pra.log2(),-1).mean()
+        pi_a_s = pact.softmax(-1)
+        entropy = -1 * tr.sum(pi_a_s*pi_a_s.log2(),-1).mean()
         data['entropy'] = entropy.detach().numpy()
         ## value
         returns = compute_returns(expD['reward']) 
         data['delta'] = np.mean(returns - vhat.detach().numpy())
+        ## IS weight
+        # mu_a_s = expD['mu_a_s']
+        # data['is_weight'] = tr.gather(
+        #     tr.min(tr.tensor(1.009),pi_a_s/mu_a_s
+        #         ),0,tr.Tensor(expD['action']).unsqueeze(1).long()
+        #     )
         return data
 
     def update(self,expD):
@@ -169,23 +175,31 @@ class ACAgent(tr.nn.Module):
         """
         states,actions = expD['state'],tr.Tensor(expD['action'])
         vhat,pact = self.forward(states)
+        pi_a_s = pact.softmax(-1)
+        if 'is' in expD:
+            is_weight = expD['is']
+        else:
+            is_weight = 1
         # form target
+        # print(is_weight)
         returns = compute_returns(expD['reward'],gamma=self.gamma) 
         if self.TDupdate: # actor-critic loss
+            # assert Falserr
             delta = tr.Tensor(expD['reward'][:-1])+self.gamma*vhat[1:].squeeze()-vhat[:-1].squeeze()
             delta = tr.cat([delta,tr.Tensor([0])])
         else: # REINFORCE
             delta = tr.Tensor(returns) - vhat.squeeze()
+        # entropy
+        entropy = -1 * tr.sum(pi_a_s*pi_a_s.log2(),-1).mean()
         # form RL loss
-        distr = Categorical(pact.softmax(-1))
+        distr = Categorical(pi_a_s)
         los_pi = tr.mean(delta*distr.log_prob(actions))
-        los_val = tr.square(tr.Tensor(returns) - vhat.squeeze()).mean()
-        los = los_val-los_pi
+        los_val = tr.square(delta).mean()
+        los = (5*los_val-los_pi-0.05*entropy)
         # update step
         self.optiop.zero_grad()
         los.backward()
-        self.optiop.step()
-            
+        self.optiop.step()            
         return None 
   
   
