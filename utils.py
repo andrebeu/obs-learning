@@ -179,7 +179,7 @@ class ACAgent(tr.nn.Module):
         if 'is' in expD:
             is_weight = expD['is']
         else:
-            is_weight = 1
+            is_weight = tr.ones(tr.Tensor(expD['reward']).shape[0])
         # form target
         # print(is_weight)
         returns = compute_returns(expD['reward'],gamma=self.gamma) 
@@ -191,11 +191,17 @@ class ACAgent(tr.nn.Module):
             delta = tr.Tensor(returns) - vhat.squeeze()
         # entropy
         entropy = -1 * tr.sum(pi_a_s*pi_a_s.log2(),-1).mean()
+        # importance sampling
+        # print(is_weight)
+        # print(delta)
+        delta = is_weight*delta
+        # print(delta)
+        # assert False
         # form RL loss
         distr = Categorical(pi_a_s)
         los_pi = tr.mean(delta*distr.log_prob(actions))
         los_val = tr.square(delta).mean()
-        los = (5*los_val-los_pi-0.05*entropy)
+        los = (2.5*los_val-los_pi-0.05*entropy)
         # update step
         self.optiop.zero_grad()
         los.backward()
